@@ -18,7 +18,7 @@ type Client struct {
 func NewClient(apiKey string, logger *logrus.Entry) *Client {
 	apiClient := openai.NewClient(option.WithAPIKey(apiKey))
 	return &Client{
-		api:    apiClient,
+		api:    &apiClient,
 		logger: logger,
 	}
 }
