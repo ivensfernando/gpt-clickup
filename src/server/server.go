@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"github.com/gin-gonic/gin"
@@ -10,21 +10,14 @@ import (
 	"os"
 )
 
-func main() {
+func StartServer(port string, logger *logrus.Entry) {
 	err := godotenv.Load()
 	if err != nil {
 		log.Println("⚠️  No .env file found, using system env")
 	}
 
-	logger := logrus.New()
-	logger.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
-
 	openaiKey := os.Getenv("OPENAI_API_KEY")
 	clickupKey := os.Getenv("CLICKUP_API_KEY")
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
 
 	gptClient := gpt.NewClient(openaiKey, logger)
 	clickupClient := clickup.NewClient(clickupKey, logger)
