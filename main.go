@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"github.com/ivensfernando/gpt-clickup/src/db"
-	"github.com/ivensfernando/gpt-clickup/src/server"
 	"github.com/sirupsen/logrus"
+	"gpt-clickup/src/db"
+	"gpt-clickup/src/server"
 	"os"
 	"time"
 )
