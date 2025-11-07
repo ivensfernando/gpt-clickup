@@ -41,6 +41,11 @@ func StartServer(port string, logger *logrus.Entry) {
 
 	r := gin.Default()
 
+	// endpoint de health check
+	r.GET("/health", func(c *gin.Context) {
+		c.String(http.StatusOK, "OK")
+	})
+
 	r.POST("/gpt-clickup", func(c *gin.Context) {
 		var req struct {
 			Prompt string `json:"prompt"`
