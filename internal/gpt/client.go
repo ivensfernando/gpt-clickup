@@ -12,13 +12,13 @@ import (
 
 type Client struct {
 	api    *openai.Client
-	logger *logrus.Logger
+	logger *logrus.Entry
 }
 
-func NewClient(apiKey string, logger *logrus.Logger) *Client {
+func NewClient(apiKey string, logger *logrus.Entry) *Client {
 	apiClient := openai.NewClient(option.WithAPIKey(apiKey))
 	return &Client{
-		api:    &apiClient,
+		api:    apiClient,
 		logger: logger,
 	}
 }

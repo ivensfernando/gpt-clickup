@@ -7,6 +7,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 	"log"
+	"net/http"
 	"os"
 )
 
@@ -18,9 +19,25 @@ func StartServer(port string, logger *logrus.Entry) {
 
 	openaiKey := os.Getenv("OPENAI_API_KEY")
 	clickupKey := os.Getenv("CLICKUP_API_KEY")
+	clickupListID := os.Getenv("CLICKUP_LIST_ID")
+
+	missingEnv := gin.H{}
+	if openaiKey == "" {
+		missingEnv["OPENAI_API_KEY"] = "variável de ambiente obrigatória ausente"
+	}
+	if clickupKey == "" {
+		missingEnv["CLICKUP_API_KEY"] = "variável de ambiente obrigatória ausente"
+	}
+	if clickupListID == "" {
+		missingEnv["CLICKUP_LIST_ID"] = "variável de ambiente obrigatória ausente"
+	}
+
+	if len(missingEnv) > 0 {
+		logger.WithFields(logrus.Fields(missingEnv)).Fatal("variáveis de ambiente obrigatórias não configuradas")
+	}
 
 	gptClient := gpt.NewClient(openaiKey, logger)
-	clickupClient := clickup.NewClient(clickupKey, logger)
+	clickupClient := clickup.NewClient(clickupKey, clickupListID, logger)
 
 	r := gin.Default()
 
@@ -29,23 +46,23 @@ func StartServer(port string, logger *logrus.Entry) {
 			Prompt string `json:"prompt"`
 		}
 		if err := c.BindJSON(&req); err != nil {
-			c.JSON(400, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
 		response, err := gptClient.Ask(req.Prompt)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
 		taskID, err := clickupClient.CreateTask(response)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
-		c.JSON(200, gin.H{
+		c.JSON(http.StatusOK, gin.H{
 			"gpt_response": response,
 			"clickup_task": taskID,
 		})

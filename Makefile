@@ -1,3 +1,4 @@
+#include ./scripts/env.sh
 # ============================================
 # 🇮🇹 Makefile per il progetto GPT-ClickUp (Go)
 # ============================================
