@@ -8,7 +8,6 @@ import (
 	"github.com/ivensfernando/gpt-clickup/src/model"
 	"os"
 	"time"
-
 )
 
 var DB *gorm.DB

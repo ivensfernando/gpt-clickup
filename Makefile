@@ -7,17 +7,30 @@
 # ============================================
 
 APP_NAME = gpt-clickup
-MAIN_PATH = ./cmd/server/main.go
+MAIN_PATH = ./main.go
 BINARY_PATH = ./bin/$(APP_NAME)
 GO_FILES = $(shell find . -name '*.go' -not -path "./vendor/*")
+
+# Permette di configurare mirrors alternativi se il proxy predefinito non è raggiungibile.
+	GOPROXY_MIRRORS ?= https://proxy.golang.org,https://goproxy.cn,direct
+	GOSUMDB_ENDPOINT ?= sum.golang.org
+
 
 # ============================================
 # 🇮🇹 Installa e aggiorna i moduli Go
 # ============================================
 deps:
 	@echo "📦 Installazione / aggiornamento moduli Go..."
-	go mod tidy
-	go mod download
+	@echo "   → GOPROXY=$(GOPROXY_MIRRORS)"
+	@echo "   → GOSUMDB=$(GOSUMDB_ENDPOINT)"
+	GOPROXY=$(GOPROXY_MIRRORS) GOSUMDB=$(GOSUMDB_ENDPOINT) go mod tidy
+	GOPROXY=$(GOPROXY_MIRRORS) GOSUMDB=$(GOSUMDB_ENDPOINT) go mod download
+
+    # 🇮🇹 Alternativa che forza l'uso di fonti dirette e disabilita la verifica SumDB.
+    deps-direct:
+	@echo "📦 Installazione moduli (fallback diretto, senza SumDB)..."
+	GOPROXY=direct GOSUMDB=off go mod tidy
+	GOPROXY=direct GOSUMDB=off go mod download
 
 # ============================================
 # 🇮🇹 Compila l'applicazione
@@ -79,6 +92,7 @@ help:
 	@echo "  make debug    → Avvia in modalità debug"
 	@echo "  make clean    → Pulisce cache e binari"
 	@echo "  make fmt      → Sistema import e formatta il codice"
+	@echo "  make deps-direct → Scarica le dipendenze usando solo sorgenti dirette"
 	@echo "  make dev      → fmt + build + run"
 
-.PHONY: deps build run debug clean fmt dev help
+.PHONY: deps deps-direct build run debug clean fmt dev help
