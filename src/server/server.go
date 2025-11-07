@@ -2,10 +2,10 @@ package server
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/ivensfernando/gpt-clickup/internal/clickup"
+	"github.com/ivensfernando/gpt-clickup/internal/gpt"
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
-	"gpt-clickup/internal/clickup"
-	"gpt-clickup/internal/gpt"
 	"log"
 	"os"
 )
