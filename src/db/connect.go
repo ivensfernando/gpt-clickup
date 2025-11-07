@@ -2,10 +2,10 @@ package db
 
 import (
 	"fmt"
+	"github.com/ivensfernando/gpt-clickup/src/model"
 	"github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"github.com/ivensfernando/gpt-clickup/src/model"
 	"os"
 	"time"
 )
@@ -39,7 +39,7 @@ func InitDB(logger *logrus.Entry) {
 	sqlDB.SetMaxIdleConns(10)
 	sqlDB.SetConnMaxLifetime(1 * time.Hour)
 
-	if err := db.AutoMigrate( &model.User{}, err != nil {
+	if err := db.AutoMigrate(&model.User{}); err != nil {
 		logger.WithError(err).Fatal("Failed to migrate database")
 	}
 
