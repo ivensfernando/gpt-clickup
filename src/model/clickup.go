@@ -8,7 +8,7 @@ type WorkspaceClickUp struct {
 	Name      string         `gorm:"size:255" json:"name"`
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
-	Spaces    []SpaceClickUp `json:"spaces"`
+	Spaces    []SpaceClickUp `gorm:"foreignKey:WorkspaceID;references:ID" json:"spaces"`
 }
 
 // SpaceClickUp rappresenta uno spazio del ClickUp.
@@ -18,8 +18,8 @@ type SpaceClickUp struct {
 	WorkspaceID string          `gorm:"index" json:"workspace_id"`
 	CreatedAt   time.Time       `json:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at"`
-	Lists       []ListClickUp   `json:"lists"`
-	Folders     []FolderClickUp `json:"folders"`
+	Lists       []ListClickUp   `gorm:"foreignKey:SpaceID;references:ID" json:"lists"`
+	Folders     []FolderClickUp `gorm:"foreignKey:SpaceID;references:ID" json:"folders"`
 }
 
 // FolderClickUp rappresenta un folder del ClickUp.
@@ -29,7 +29,7 @@ type FolderClickUp struct {
 	SpaceID   string        `gorm:"index" json:"space_id"`
 	CreatedAt time.Time     `json:"created_at"`
 	UpdatedAt time.Time     `json:"updated_at"`
-	Lists     []ListClickUp `json:"lists"`
+	Lists     []ListClickUp `gorm:"foreignKey:FolderID;references:ID" json:"lists"`
 }
 
 // ListClickUp rappresenta una lista del ClickUp.
@@ -40,7 +40,7 @@ type ListClickUp struct {
 	FolderID  *string       `gorm:"index" json:"folder_id"`
 	CreatedAt time.Time     `json:"created_at"`
 	UpdatedAt time.Time     `json:"updated_at"`
-	Tasks     []TaskClickUp `json:"tasks"`
+	Tasks     []TaskClickUp `gorm:"foreignKey:ListID;references:ID" json:"tasks"`
 }
 
 // TaskClickUp rappresenta un task o subtask del ClickUp.
