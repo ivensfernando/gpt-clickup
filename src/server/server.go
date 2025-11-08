@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/ivensfernando/gpt-clickup/internal/clickup"
 	"github.com/ivensfernando/gpt-clickup/internal/gpt"
+	"github.com/ivensfernando/gpt-clickup/src/model"
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 	"log"
@@ -19,7 +20,7 @@ func StartServer(port string, logger *logrus.Entry) {
 
 	openaiKey := os.Getenv("OPENAI_API_KEY")
 	clickupKey := os.Getenv("CLICKUP_API_KEY")
-	clickupListID := os.Getenv("CLICKUP_LIST_ID")
+	defaultListID := os.Getenv("CLICKUP_LIST_ID")
 
 	missingEnv := gin.H{}
 	if openaiKey == "" {
@@ -28,16 +29,15 @@ func StartServer(port string, logger *logrus.Entry) {
 	if clickupKey == "" {
 		missingEnv["CLICKUP_API_KEY"] = "variável de ambiente obrigatória ausente"
 	}
-	if clickupListID == "" {
-		missingEnv["CLICKUP_LIST_ID"] = "variável de ambiente obrigatória ausente"
-	}
 
 	if len(missingEnv) > 0 {
 		logger.WithFields(logrus.Fields(missingEnv)).Fatal("variáveis de ambiente obrigatórias não configuradas")
 	}
 
 	gptClient := gpt.NewClient(openaiKey, logger)
-	clickupClient := clickup.NewClient(clickupKey, clickupListID, logger)
+	clickupClient := clickup.NewClient(clickupKey, logger)
+	clickupRepo := DefaultRepository()
+	clickupHandler := NewClickUpHandler(clickupClient, clickupRepo, logger)
 
 	r := gin.Default()
 
@@ -46,9 +46,12 @@ func StartServer(port string, logger *logrus.Entry) {
 		c.String(http.StatusOK, "OK")
 	})
 
+	clickupHandler.RegisterRoutes(r)
+
 	r.POST("/gpt-clickup", func(c *gin.Context) {
 		var req struct {
 			Prompt string `json:"prompt"`
+			ListID string `json:"list_id"`
 		}
 		if err := c.BindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -61,15 +64,28 @@ func StartServer(port string, logger *logrus.Entry) {
 			return
 		}
 
-		taskID, err := clickupClient.CreateTask(response)
+		listID := req.ListID
+		if listID == "" {
+			listID = defaultListID
+		}
+		if listID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "list_id is required"})
+			return
+		}
+
+		task, err := clickupClient.CreateTask(c.Request.Context(), listID, clickup.TaskRequest{Name: response, Description: "Generated automatically"})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
+		if err := clickupRepo.SaveTasks([]model.TaskClickUp{*task}); err != nil {
+			logger.WithError(err).Warn("Failed to persist GPT generated task")
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"gpt_response": response,
-			"clickup_task": taskID,
+			"clickup_task": task.ID,
 		})
 	})
 
