@@ -44,6 +44,9 @@ func (h *ClickUpHandler) RegisterRoutes(r *gin.Engine) {
 	group.GET("/lists/:id/tasks", h.getTasks)
 	group.POST("/spaces/:id/folders", h.createFolder)
 	group.POST("/lists/:id/tasks", h.createTask)
+	// Add these two new routes:
+	group.DELETE("/folders/:id", h.deleteFolder)
+	group.DELETE("/tasks/:id", h.deleteTask)
 }
 
 func (h *ClickUpHandler) getWorkspaces(c *gin.Context) {
@@ -251,6 +254,33 @@ func (h *ClickUpHandler) createTask(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"task": task})
+}
+
+// Add these two new handler methods:
+func (h *ClickUpHandler) deleteFolder(c *gin.Context) {
+	folderID := c.Param("id")
+
+	err := h.service.DeleteFolder(c.Request.Context(), folderID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to delete folder from ClickUp")
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to delete folder"})
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
+func (h *ClickUpHandler) deleteTask(c *gin.Context) {
+	taskID := c.Param("id")
+
+	err := h.service.DeleteTask(c.Request.Context(), taskID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to delete task from ClickUp")
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to delete task"})
+		return
+	}
+
+	c.Status(http.StatusNoContent)
 }
 
 // storeWorkspaces e le altre funzioni legacy sono state sostituite dal repository.
