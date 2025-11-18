@@ -256,6 +256,109 @@ func (c *Client) DeleteTask(ctx context.Context, taskID string) error {
 	return c.delete(ctx, endpoint)
 }
 
+// GetTask retrieves detailed information about a specific task.
+func (c *Client) GetTask(ctx context.Context, taskID string) (*model.TaskClickUp, error) {
+	var response struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Status      struct {
+			Status string `json:"status"`
+		} `json:"status"`
+		Priority *struct {
+			Priority int `json:"priority"`
+		} `json:"priority"`
+		Parent string `json:"parent"`
+		List   struct {
+			ID string `json:"id"`
+		} `json:"list"`
+	}
+
+	endpoint := fmt.Sprintf("task/%s", taskID)
+	if err := c.get(ctx, endpoint, &response); err != nil {
+		return nil, err
+	}
+
+	var priority int
+	if response.Priority != nil {
+		priority = response.Priority.Priority
+	}
+
+	var parent *string
+	if response.Parent != "" {
+		parentID := response.Parent
+		parent = &parentID
+	}
+
+	return &model.TaskClickUp{
+		ID:          response.ID,
+		Name:        response.Name,
+		Description: response.Description,
+		ListID:      response.List.ID,
+		ParentID:    parent,
+		Status:      response.Status.Status,
+		Priority:    priority,
+	}, nil
+}
+
+// UpdateTask updates an existing task.
+func (c *Client) UpdateTask(ctx context.Context, taskID string, payload TaskRequest) (*model.TaskClickUp, error) {
+	endpoint := fmt.Sprintf("task/%s", taskID)
+
+	var response struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Status      struct {
+			Status string `json:"status"`
+		} `json:"status"`
+		List struct {
+			ID string `json:"id"`
+		} `json:"list"`
+	}
+
+	if err := c.put(ctx, endpoint, payload, &response); err != nil {
+		return nil, err
+	}
+
+	result := &model.TaskClickUp{
+		ID:          response.ID,
+		Name:        response.Name,
+		Description: response.Description,
+		ListID:      response.List.ID,
+		Status:      response.Status.Status,
+	}
+	if payload.Priority != nil {
+		result.Priority = *payload.Priority
+	}
+	return result, nil
+}
+
+// ListFolderLists retrieves all lists within a specific folder.
+func (c *Client) ListFolderLists(ctx context.Context, folderID string) ([]model.ListClickUp, error) {
+	var response struct {
+		Lists []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"lists"`
+	}
+
+	endpoint := fmt.Sprintf("folder/%s/list?archived=false", folderID)
+	if err := c.get(ctx, endpoint, &response); err != nil {
+		return nil, err
+	}
+
+	lists := make([]model.ListClickUp, 0, len(response.Lists))
+	for _, list := range response.Lists {
+		lists = append(lists, model.ListClickUp{
+			ID:       list.ID,
+			Name:     list.Name,
+			FolderID: &folderID,
+		})
+	}
+	return lists, nil
+}
+
 func (c *Client) get(ctx context.Context, endpoint string, out interface{}) error {
 	return c.do(ctx, http.MethodGet, endpoint, nil, out)
 }
@@ -266,6 +369,11 @@ func (c *Client) post(ctx context.Context, endpoint string, body interface{}, ou
 
 func (c *Client) delete(ctx context.Context, endpoint string) error {
 	return c.do(ctx, http.MethodDelete, endpoint, nil, nil)
+}
+
+// Add this helper method for PUT requests
+func (c *Client) put(ctx context.Context, endpoint string, body interface{}, out interface{}) error {
+	return c.do(ctx, http.MethodPut, endpoint, body, out)
 }
 
 func (c *Client) do(ctx context.Context, method, endpoint string, body interface{}, out interface{}) error {
