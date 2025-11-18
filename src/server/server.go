@@ -20,7 +20,7 @@ func StartServer(port string, logger *logrus.Entry) {
 
 	openaiKey := os.Getenv("OPENAI_API_KEY")
 	clickupKey := os.Getenv("CLICKUP_API_KEY")
-	defaultListID := os.Getenv("CLICKUP_LIST_ID")
+	//defaultListID := os.Getenv("CLICKUP_LIST_ID")
 
 	missingEnv := gin.H{}
 	if openaiKey == "" {
@@ -65,9 +65,9 @@ func StartServer(port string, logger *logrus.Entry) {
 		}
 
 		listID := req.ListID
-		if listID == "" {
-			listID = defaultListID
-		}
+		//if listID == "" {
+		//	listID = defaultListID
+		//}
 		if listID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "list_id is required"})
 			return
