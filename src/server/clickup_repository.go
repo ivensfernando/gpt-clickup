@@ -23,6 +23,15 @@ func (r *GormClickUpRepository) GetWorkspaces() ([]model.WorkspaceClickUp, error
 	return workspaces, err
 }
 
+func (r *GormClickUpRepository) GetWorkspaceTree() ([]model.WorkspaceClickUp, error) {
+	var workspaces []model.WorkspaceClickUp
+	err := r.db.
+		Preload("Spaces.Lists.Tasks").
+		Preload("Spaces.Folders.Lists.Tasks").
+		Find(&workspaces).Error
+	return workspaces, err
+}
+
 func (r *GormClickUpRepository) SaveWorkspaces(workspaces []model.WorkspaceClickUp) error {
 	if len(workspaces) == 0 {
 		return nil

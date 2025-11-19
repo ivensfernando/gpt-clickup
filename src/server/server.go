@@ -4,10 +4,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
-	"gpt-clickup/internal/platform/clickup"
-
 	"gpt-clickup/internal/gpt"
-	"gpt-clickup/src/model"
+	"gpt-clickup/internal/platform/clickup"
 	"log"
 	"net/http"
 	"os"
@@ -49,46 +47,8 @@ func StartServer(port string, logger *logrus.Entry) {
 
 	clickupHandler.RegisterRoutes(r)
 
-	r.POST("/gpt-clickup", func(c *gin.Context) {
-		var req struct {
-			Prompt string `json:"prompt"`
-			ListID string `json:"list_id"`
-		}
-		if err := c.BindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		response, err := gptClient.Ask(req.Prompt)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		listID := req.ListID
-		//if listID == "" {
-		//	listID = defaultListID
-		//}
-		if listID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "list_id is required"})
-			return
-		}
-
-		task, err := clickupClient.CreateTask(c.Request.Context(), listID, clickup.TaskRequest{Name: response, Description: "Generated automatically"})
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		if err := clickupRepo.SaveTasks([]model.TaskClickUp{*task}); err != nil {
-			logger.WithError(err).Warn("Failed to persist GPT generated task")
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"gpt_response": response,
-			"clickup_task": task.ID,
-		})
-	})
+	gptEndpoint := NewGPTClickUpEndpoint(gptClient, clickupClient, clickupRepo, logger)
+	r.POST("/gpt-clickup", gptEndpoint.Handle)
 
 	logger.Infof("🚀 Server running on :%s", port)
 	r.Run(":" + port)

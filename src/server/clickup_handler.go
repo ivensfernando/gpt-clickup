@@ -13,6 +13,7 @@ import (
 // ClickUpHandler coordina le operazioni tra il client ClickUp e il database locale.
 type ClickUpRepository interface {
 	GetWorkspaces() ([]model.WorkspaceClickUp, error)
+	GetWorkspaceTree() ([]model.WorkspaceClickUp, error)
 	SaveWorkspaces([]model.WorkspaceClickUp) error
 	GetSpaces(workspaceID string) ([]model.SpaceClickUp, error)
 	SaveSpaces([]model.SpaceClickUp) error

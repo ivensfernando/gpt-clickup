@@ -34,6 +34,47 @@ func (m *MemoryClickUpRepository) GetWorkspaces() ([]model.WorkspaceClickUp, err
 	return m.workspaces, nil
 }
 
+func (m *MemoryClickUpRepository) GetWorkspaceTree() ([]model.WorkspaceClickUp, error) {
+	result := make([]model.WorkspaceClickUp, len(m.workspaces))
+	for i, ws := range m.workspaces {
+		wsCopy := ws
+		spaces := m.spaces[ws.ID]
+		wsCopy.Spaces = make([]model.SpaceClickUp, len(spaces))
+		for j, space := range spaces {
+			spaceCopy := space
+			// attach top-level lists
+			lists := m.lists[space.ID]
+			topLevel := make([]model.ListClickUp, 0)
+			folderBuckets := make(map[string][]model.ListClickUp)
+			for _, list := range lists {
+				listCopy := list
+				if tasks, ok := m.tasks[list.ID]; ok {
+					listCopy.Tasks = append([]model.TaskClickUp(nil), tasks...)
+				}
+				if list.FolderID == nil {
+					topLevel = append(topLevel, listCopy)
+				} else {
+					folderID := *list.FolderID
+					folderBuckets[folderID] = append(folderBuckets[folderID], listCopy)
+				}
+			}
+			spaceCopy.Lists = topLevel
+
+			folders := m.folders[space.ID]
+			spaceCopy.Folders = make([]model.FolderClickUp, len(folders))
+			for k, folder := range folders {
+				folderCopy := folder
+				folderCopy.Lists = append([]model.ListClickUp(nil), folderBuckets[folder.ID]...)
+				spaceCopy.Folders[k] = folderCopy
+			}
+
+			wsCopy.Spaces[j] = spaceCopy
+		}
+		result[i] = wsCopy
+	}
+	return result, nil
+}
+
 func (m *MemoryClickUpRepository) SaveWorkspaces(ws []model.WorkspaceClickUp) error {
 	m.workspaces = ws
 	return nil

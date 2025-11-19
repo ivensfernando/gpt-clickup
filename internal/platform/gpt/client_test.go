@@ -13,27 +13,29 @@ type mockAPI struct {
 	err      error
 }
 
-func (m *mockAPI) CompletionsNew(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+func (m *mockAPI) Create(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	return &openai.ChatCompletion{
 		ID:      "test-completion",
-		Object:  "chat.completion",
+		Object:  constant.ValueOf[constant.ChatCompletion](),
 		Created: 1234567890,
-		Model:   openai.ChatModelGPT4oMini,
-		Usage: &openai.Usage{
+		Model:   string(openai.ChatModelGPT4oMini),
+		Usage: openai.CompletionUsage{
 			PromptTokens:     10,
 			CompletionTokens: 20,
 			TotalTokens:      30,
 		},
-		Choices: []*openai.ChatCompletionChoice{
+		Choices: []openai.ChatCompletionChoice{
 			{
-				Message: &openai.ChatCompletionChoiceMessage{
+				FinishReason: "stop",
+				Index:        0,
+				Logprobs:     openai.ChatCompletionChoiceLogprobs{},
+				Message: openai.ChatCompletionMessage{
 					Role:    constant.ValueOf[constant.Assistant](),
 					Content: m.response,
 				},
-				FinishReason: constant.ValueOf[constant.Stop](),
 			},
 		},
 	}, nil
@@ -73,10 +75,7 @@ func TestClientAsk(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			logger := logrus.New().WithField("test", true)
-			client := &Client{
-				api:    &tt.mock,
-				logger: logger,
-			}
+			client := NewClientWithAPI(&tt.mock, logger)
 
 			resp, err := client.Ask(tt.prompt)
 			if (err != nil) != tt.wantErr {
