@@ -1,12 +1,13 @@
 package server
 
 import (
+	"gpt-clickup/internal/platform/clickup"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/ivensfernando/gpt-clickup/internal/clickup"
-	"github.com/ivensfernando/gpt-clickup/src/model"
 	"github.com/sirupsen/logrus"
+
+	"gpt-clickup/src/model"
 )
 
 // ClickUpHandler coordina le operazioni tra il client ClickUp e il database locale.

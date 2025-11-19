@@ -1,10 +1,9 @@
-package gpt
+package clickup
 
 import (
 	"context"
 	"testing"
 
-	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/shared/constant"
 	"github.com/sirupsen/logrus"
 )

@@ -1,10 +1,10 @@
 package server
 
 import (
-	"github.com/ivensfernando/gpt-clickup/src/db"
-	"github.com/ivensfernando/gpt-clickup/src/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"gpt-clickup/src/db"
+	"gpt-clickup/src/model"
 )
 
 // GormClickUpRepository implementa ClickUpRepository utilizzando GORM.

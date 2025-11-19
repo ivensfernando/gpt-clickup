@@ -1,6 +1,6 @@
 package server
 
-import "github.com/ivensfernando/gpt-clickup/src/model"
+import "gpt-clickup/src/model"
 
 // MemoryClickUpRepository offre un archivio in-memory utile per i test.
 type MemoryClickUpRepository struct {

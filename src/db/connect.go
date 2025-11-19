@@ -2,10 +2,10 @@ package db
 
 import (
 	"fmt"
-	"github.com/ivensfernando/gpt-clickup/src/model"
 	"github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gpt-clickup/src/model"
 	"os"
 	"time"
 )

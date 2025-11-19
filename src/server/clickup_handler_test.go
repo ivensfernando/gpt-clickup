@@ -10,9 +10,9 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/ivensfernando/gpt-clickup/internal/clickup"
-	"github.com/ivensfernando/gpt-clickup/src/model"
 	"github.com/sirupsen/logrus"
+	"gpt-clickup/internal/platform/clickup"
+	"gpt-clickup/src/model"
 )
 
 type fakeService struct {

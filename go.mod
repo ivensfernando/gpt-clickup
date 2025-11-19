@@ -1,4 +1,4 @@
-module github.com/ivensfernando/gpt-clickup
+module gpt-clickup
 
 go 1.23.9
 
