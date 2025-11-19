@@ -68,42 +68,57 @@ func NewGPTClickUpEndpoint(gptClient *gpt.Client, service clickup.Service, repo 
 
 // Handle executa o fluxo planner -> execução -> resposta.
 func (h *GPTClickUpEndpoint) Handle(c *gin.Context) {
+	h.logger.WithFields(logrus.Fields{
+		"operation": "handle_request",
+		"path":      c.FullPath(),
+		"method":    c.Request.Method,
+	}).Info("incoming request")
+
 	var req GPTClickUpRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		h.logger.WithError(err).WithFields(logrus.Fields{
+			"operation": "bind_request",
+			"path":      c.FullPath(),
+		}).Warn("failed to bind request body")
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	workspaces, err := h.workspaceSnapshot(c.Request.Context(), req.ForceSync)
 	if err != nil {
-		h.logger.WithError(err).Error("failed to build workspace snapshot")
+		h.logger.WithError(err).WithField("operation", "workspace_snapshot").Error("failed to build workspace snapshot")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build workspace snapshot"})
 		return
 	}
 
 	listID, list := h.resolveList(workspaces, req)
 	if listID == "" {
+		h.logger.WithFields(logrus.Fields{
+			"operation": "resolve_list",
+			"list_id":   req.ListID,
+			"list_path": req.ListPath,
+		}).Warn("unable to resolve list")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "list_id or a valid list_path must be provided"})
 		return
 	}
 
 	messages, err := h.buildPlannerMessages(req.Prompt, listID, workspaces, req.ListPath)
 	if err != nil {
-		h.logger.WithError(err).Error("failed to build GPT planner prompt")
+		h.logger.WithError(err).WithField("operation", "build_planner_messages").Error("failed to build GPT planner prompt")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build GPT planner prompt"})
 		return
 	}
 
 	planRaw, err := h.gpt.Chat(messages)
 	if err != nil {
-		h.logger.WithError(err).Error("failed to contact GPT planner")
+		h.logger.WithError(err).WithField("operation", "gpt_planner").Error("failed to contact GPT planner")
 		c.JSON(http.StatusBadGateway, gin.H{"error": "planner failed", "details": err.Error()})
 		return
 	}
 
 	plan, err := parsePlannerResponse(planRaw)
 	if err != nil {
-		h.logger.WithError(err).Warn("GPT planner returned invalid JSON, falling back to prompt text")
+		h.logger.WithError(err).WithField("operation", "parse_planner_response").Warn("GPT planner returned invalid JSON, falling back to prompt text")
 		plan = gptPlannerResponse{
 			Task: gptPlannerTask{Name: truncateString(req.Prompt, 80), Description: planRaw, Status: "backlog"},
 		}
@@ -120,13 +135,20 @@ func (h *GPTClickUpEndpoint) Handle(c *gin.Context) {
 
 	task, err := h.service.CreateTask(c.Request.Context(), listID, payload)
 	if err != nil {
-		h.logger.WithError(err).Error("failed to create task")
+		h.logger.WithError(err).WithFields(logrus.Fields{
+			"operation": "create_task",
+			"list_id":   listID,
+		}).Error("failed to create task")
 		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to create task", "details": err.Error(), "planner": planRaw})
 		return
 	}
 
 	if err := h.repo.SaveTasks([]model.TaskClickUp{*task}); err != nil {
-		h.logger.WithError(err).Warn("failed to persist task created by GPT endpoint")
+		h.logger.WithError(err).WithFields(logrus.Fields{
+			"operation": "persist_task",
+			"list_id":   listID,
+			"task_id":   task.ID,
+		}).Warn("failed to persist task created by GPT endpoint")
 	}
 
 	if list != nil {
