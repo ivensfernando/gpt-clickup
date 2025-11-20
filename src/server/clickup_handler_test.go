@@ -95,6 +95,35 @@ func (f *fakeService) DeleteTask(ctx context.Context, taskID string) error {
 	return nil
 }
 
+func (f *fakeService) GetTask(ctx context.Context, taskID string) (*model.TaskClickUp, error) {
+	for _, task := range f.createdTasks {
+		if task.ID == taskID {
+			return &task, nil
+		}
+	}
+	return nil, fmt.Errorf("task not found")
+}
+
+func (f *fakeService) UpdateTask(ctx context.Context, taskID string, payload clickup.TaskRequest) (*model.TaskClickUp, error) {
+	for i, task := range f.createdTasks {
+		if task.ID == taskID {
+			if payload.Name != "" {
+				task.Name = payload.Name
+			}
+			if payload.Status != "" {
+				task.Status = payload.Status
+			}
+			f.createdTasks[i] = task
+			return &task, nil
+		}
+	}
+	return nil, fmt.Errorf("task not found")
+}
+
+func (f *fakeService) ListFolderLists(ctx context.Context, folderID string) ([]model.ListClickUp, error) {
+	return nil, nil
+}
+
 func setupTestRouter(service clickup.Service, repo ClickUpRepository) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	logger := logrus.New().WithField("test", true)

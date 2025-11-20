@@ -33,6 +33,9 @@ type Service interface {
 	CreateTask(ctx context.Context, listID string, payload TaskRequest) (*model.TaskClickUp, error)
 	DeleteFolder(ctx context.Context, folderID string) error
 	DeleteTask(ctx context.Context, taskID string) error
+	GetTask(ctx context.Context, taskID string) (*model.TaskClickUp, error)
+	UpdateTask(ctx context.Context, taskID string, payload TaskRequest) (*model.TaskClickUp, error)
+	ListFolderLists(ctx context.Context, folderID string) ([]model.ListClickUp, error)
 }
 
 // Client gestisce le richieste verso l'API del ClickUp.

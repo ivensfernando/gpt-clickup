@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -71,6 +73,8 @@ type taskWithContext struct {
 type taskListingIntent struct {
 	workspace *model.WorkspaceClickUp
 	space     *model.SpaceClickUp
+	folder    *model.FolderClickUp
+	list      *model.ListClickUp
 	openOnly  bool
 }
 
@@ -114,8 +118,17 @@ func (h *GPTClickUpEndpoint) Handle(c *gin.Context) {
 		return
 	}
 
+	if updated, err := h.tryCompleteTask(c.Request.Context(), req.Prompt, workspaces, req.ForceSync); err != nil {
+		h.logger.WithError(err).WithField("operation", "complete_task").Error("failed to complete task")
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to complete task"})
+		return
+	} else if updated != nil {
+		c.JSON(http.StatusOK, gin.H{"updated_task": updated})
+		return
+	}
+
 	if intent := detectTaskListingIntent(req.Prompt, workspaces); intent != nil {
-		tasks, err := h.listWorkspaceTasks(c.Request.Context(), intent.workspace, intent.space, req.ForceSync, intent.openOnly)
+		tasks, err := h.listWorkspaceTasks(c.Request.Context(), intent.workspace, intent.space, intent.folder, intent.list, req.ForceSync, intent.openOnly)
 		if err != nil {
 			h.logger.WithError(err).WithField("operation", "list_workspace_tasks").Error("failed to list workspace tasks")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list workspace tasks"})
@@ -130,6 +143,14 @@ func (h *GPTClickUpEndpoint) Handle(c *gin.Context) {
 
 		if intent.space != nil {
 			response["space"] = gin.H{"id": intent.space.ID, "name": intent.space.Name}
+		}
+
+		if intent.folder != nil {
+			response["folder"] = gin.H{"id": intent.folder.ID, "name": intent.folder.Name}
+		}
+
+		if intent.list != nil {
+			response["list"] = gin.H{"id": intent.list.ID, "name": intent.list.Name}
 		}
 
 		c.JSON(http.StatusOK, response)
@@ -324,7 +345,7 @@ func (h *GPTClickUpEndpoint) buildPlannerMessages(prompt, listID string, workspa
 	}, nil
 }
 
-func (h *GPTClickUpEndpoint) listWorkspaceTasks(ctx context.Context, workspace *model.WorkspaceClickUp, space *model.SpaceClickUp, forceSync, openOnly bool) ([]taskWithContext, error) {
+func (h *GPTClickUpEndpoint) listWorkspaceTasks(ctx context.Context, workspace *model.WorkspaceClickUp, targetSpace *model.SpaceClickUp, targetFolder *model.FolderClickUp, targetList *model.ListClickUp, forceSync, openOnly bool) ([]taskWithContext, error) {
 	tasks := make([]taskWithContext, 0)
 
 	addTasks := func(list model.ListClickUp, space model.SpaceClickUp, folderName *string) error {
@@ -353,19 +374,33 @@ func (h *GPTClickUpEndpoint) listWorkspaceTasks(ctx context.Context, workspace *
 	}
 
 	spaces := workspace.Spaces
-	if space != nil {
-		spaces = []model.SpaceClickUp{*space}
+	if targetSpace != nil {
+		spaces = []model.SpaceClickUp{*targetSpace}
 	}
 
 	for _, space := range spaces {
-		for _, list := range space.Lists {
-			if err := addTasks(list, space, nil); err != nil {
-				return nil, err
+		if targetFolder == nil {
+			for _, list := range space.Lists {
+				if intentList := list.ID; intentList != "" && targetList != nil && intentList != targetList.ID {
+					continue
+				}
+				if err := addTasks(list, space, nil); err != nil {
+					return nil, err
+				}
 			}
 		}
+
 		for _, folder := range space.Folders {
+			if intentFolder := folder.ID; intentFolder != "" && targetFolder != nil && intentFolder != targetFolder.ID {
+				continue
+			}
+
 			folderName := folder.Name
 			for _, list := range folder.Lists {
+				if intentList := list.ID; intentList != "" && targetList != nil && intentList != targetList.ID {
+					continue
+				}
+
 				if err := addTasks(list, space, &folderName); err != nil {
 					return nil, err
 				}
@@ -374,6 +409,113 @@ func (h *GPTClickUpEndpoint) listWorkspaceTasks(ctx context.Context, workspace *
 	}
 
 	return tasks, nil
+}
+
+func (h *GPTClickUpEndpoint) tryCompleteTask(ctx context.Context, prompt string, workspaces []model.WorkspaceClickUp, forceSync bool) (*taskWithContext, error) {
+	if !hasCompletionIntent(prompt) {
+		return nil, nil
+	}
+
+	allTasks := make([]taskWithContext, 0)
+	for idx := range workspaces {
+		if idx >= len(workspaces) {
+			return nil, fmt.Errorf("workspace index out of bounds: %d", idx)
+		}
+		taskList, err := h.listWorkspaceTasks(ctx, &workspaces[idx], nil, nil, nil, forceSync, false)
+		if err != nil {
+			return nil, err
+		}
+		allTasks = append(allTasks, taskList...)
+	}
+
+	candidate := findBestMatchingTask(prompt, allTasks)
+	if candidate == nil {
+		return nil, nil
+	}
+
+	updated, err := h.service.UpdateTask(ctx, candidate.ID, clickup.TaskRequest{Status: "closed"})
+	if err != nil {
+		return nil, err
+	}
+
+	if updated != nil {
+		candidate.Name = updated.Name
+		candidate.Status = updated.Status
+		candidate.Priority = updated.Priority
+
+		save := model.TaskClickUp{ID: updated.ID, Name: updated.Name, ListID: updated.ListID, Status: updated.Status, Priority: updated.Priority}
+		if err := h.repo.SaveTasks([]model.TaskClickUp{save}); err != nil {
+			h.logger.WithError(err).WithFields(logrus.Fields{"operation": "persist_task", "task_id": updated.ID}).Warn("failed to persist completed task")
+		}
+	}
+
+	return candidate, nil
+}
+
+func findBestMatchingTask(prompt string, tasks []taskWithContext) *taskWithContext {
+	normalized := strings.ToLower(prompt)
+	bestScore := 0
+	var best *taskWithContext
+
+	for idx := range tasks {
+		score := scoreTaskMatch(normalized, tasks[idx])
+		if score > bestScore {
+			bestScore = score
+			best = &tasks[idx]
+		}
+	}
+
+	if bestScore < 20 {
+		return nil
+	}
+
+	return best
+}
+
+func scoreTaskMatch(prompt string, task taskWithContext) int {
+	score := 0
+	name := strings.ToLower(strings.TrimSpace(task.Name))
+
+	if name == "" || prompt == "" {
+		return score
+	}
+
+	if strings.Contains(prompt, strings.ToLower(task.ID)) {
+		score += 120
+	}
+	if strings.Contains(prompt, name) {
+		score += 100
+	}
+	if strings.Contains(name, prompt) {
+		score += 80
+	}
+
+	for _, token := range strings.Fields(name) {
+		token = strings.TrimSpace(token)
+		if len(token) < 3 {
+			continue
+		}
+		if strings.Contains(prompt, token) {
+			score += 10
+		}
+	}
+
+	return score
+}
+
+func hasCompletionIntent(prompt string) bool {
+	value := strings.ToLower(strings.TrimSpace(prompt))
+	if value == "" {
+		return false
+	}
+
+	keywords := []string{"fechar", "concluir", "finalizar", "completar", "complete", "close", "done", "finalize"}
+	for _, kw := range keywords {
+		if strings.Contains(value, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *GPTClickUpEndpoint) fetchListTasks(ctx context.Context, listID string, forceSync bool) ([]model.TaskClickUp, error) {
@@ -497,6 +639,61 @@ func findListAnywhere(workspaces []model.WorkspaceClickUp, path []string) *model
 	return nil
 }
 
+func mentionedInPrompt(normalized, name, id string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	id = strings.ToLower(strings.TrimSpace(id))
+
+	return tokenMentioned(normalized, name) || tokenMentioned(normalized, id)
+}
+
+func tokenMentioned(normalized, token string) bool {
+	token = strings.ToLower(strings.TrimSpace(token))
+	if token == "" {
+		return false
+	}
+
+	remaining := normalized
+	offset := 0
+
+	for {
+		idx := strings.Index(remaining, token)
+		if idx == -1 {
+			return false
+		}
+
+		start := offset + idx
+		end := start + len(token)
+
+		if boundaryOK(normalized, start, end) {
+			return true
+		}
+
+		offset = end
+		if offset >= len(normalized) {
+			return false
+		}
+		remaining = normalized[offset:]
+	}
+}
+
+func boundaryOK(normalized string, start, end int) bool {
+	if start > 0 {
+		r, _ := utf8.DecodeLastRuneInString(normalized[:start])
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return false
+		}
+	}
+
+	if end < len(normalized) {
+		r, _ := utf8.DecodeRuneInString(normalized[end:])
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return false
+		}
+	}
+
+	return true
+}
+
 func detectTaskListingIntent(prompt string, workspaces []model.WorkspaceClickUp) *taskListingIntent {
 	normalized := strings.ToLower(strings.TrimSpace(prompt))
 	if normalized == "" {
@@ -509,32 +706,69 @@ func detectTaskListingIntent(prompt string, workspaces []model.WorkspaceClickUp)
 
 	var chosen *model.WorkspaceClickUp
 	var chosenSpace *model.SpaceClickUp
+	var chosenFolder *model.FolderClickUp
+	var chosenList *model.ListClickUp
+
 	for idx := range workspaces {
 		ws := &workspaces[idx]
-		name := strings.ToLower(ws.Name)
-		if name != "" && strings.Contains(normalized, name) {
-			chosen = ws
-		}
-		if strings.Contains(normalized, strings.ToLower(ws.ID)) {
+
+		if mentionedInPrompt(normalized, ws.Name, ws.ID) {
 			chosen = ws
 		}
 
 		for si := range ws.Spaces {
 			sp := &ws.Spaces[si]
-			spaceName := strings.ToLower(sp.Name)
-			if spaceName != "" && strings.Contains(normalized, spaceName) {
+
+			if mentionedInPrompt(normalized, sp.Name, sp.ID) {
 				chosen = ws
 				chosenSpace = sp
+			}
+
+			for li := range sp.Lists {
+				list := &sp.Lists[li]
+				if mentionedInPrompt(normalized, list.Name, list.ID) {
+					chosen = ws
+					chosenSpace = sp
+					chosenFolder = nil
+					chosenList = list
+					break
+				}
+			}
+
+			if chosenList != nil {
 				break
 			}
-			if strings.Contains(normalized, strings.ToLower(sp.ID)) {
-				chosen = ws
-				chosenSpace = sp
+
+			for fi := range sp.Folders {
+				folder := &sp.Folders[fi]
+				if mentionedInPrompt(normalized, folder.Name, folder.ID) {
+					chosen = ws
+					chosenSpace = sp
+					chosenFolder = folder
+				}
+
+				for li := range folder.Lists {
+					list := &folder.Lists[li]
+					if mentionedInPrompt(normalized, list.Name, list.ID) {
+						chosen = ws
+						chosenSpace = sp
+						chosenFolder = folder
+						chosenList = list
+						break
+					}
+				}
+
+				if chosenList != nil {
+					break
+				}
+			}
+
+			if chosenList != nil {
 				break
 			}
 		}
 
-		if chosenSpace != nil || chosen != nil {
+		if chosenList != nil {
 			break
 		}
 	}
@@ -547,7 +781,7 @@ func detectTaskListingIntent(prompt string, workspaces []model.WorkspaceClickUp)
 		return nil
 	}
 
-	return &taskListingIntent{workspace: chosen, space: chosenSpace, openOnly: wantsOnlyOpenTasks(normalized)}
+	return &taskListingIntent{workspace: chosen, space: chosenSpace, folder: chosenFolder, list: chosenList, openOnly: wantsOnlyOpenTasks(normalized)}
 }
 
 func wantsOnlyOpenTasks(prompt string) bool {
