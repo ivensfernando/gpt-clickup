@@ -377,8 +377,14 @@ func (h *GPTClickUpEndpoint) buildPlannerMessages(prompt, listID string, workspa
 
 func (h *GPTClickUpEndpoint) listWorkspaceTasks(ctx context.Context, workspace *model.WorkspaceClickUp, targetSpace *model.SpaceClickUp, targetFolder *model.FolderClickUp, targetList *model.ListClickUp, forceSync, openOnly bool) ([]taskWithContext, error) {
 	tasks := make([]taskWithContext, 0)
+	processedLists := make(map[string]struct{})
 
 	addTasks := func(list model.ListClickUp, space model.SpaceClickUp, folderName *string) error {
+		if _, seen := processedLists[list.ID]; seen {
+			return nil
+		}
+		processedLists[list.ID] = struct{}{}
+
 		listTasks, err := h.fetchListTasks(ctx, list.ID, forceSync)
 		if err != nil {
 			return err
@@ -463,7 +469,12 @@ func (h *GPTClickUpEndpoint) tryCompleteTask(ctx context.Context, prompt string,
 		return nil, nil
 	}
 
-	updated, err := h.service.UpdateTask(ctx, candidate.ID, clickup.TaskRequest{Status: "closed"})
+	status, err := h.resolveClosedStatus(ctx, candidate.ListID)
+	if err != nil {
+		return nil, err
+	}
+
+	updated, err := h.service.UpdateTask(ctx, candidate.ID, clickup.TaskRequest{Status: status})
 	if err != nil {
 		return nil, err
 	}
@@ -952,7 +963,7 @@ func (h *GPTClickUpEndpoint) findTaskSearchMatches(ctx context.Context, prompt s
 		return nil
 	}
 
-	keywords := []string{"busc", "procur", "encontr", "ach", "localiz", "verifique"}
+	keywords := []string{"busc", "busq", "procur", "encontr", "ach", "localiz", "verifique"}
 	matchesIntent := false
 	for _, kw := range keywords {
 		if strings.Contains(normalized, kw) {
@@ -964,6 +975,7 @@ func (h *GPTClickUpEndpoint) findTaskSearchMatches(ctx context.Context, prompt s
 		return nil
 	}
 
+	scannedLists := make(map[string]struct{})
 	results := make([]taskWithContext, 0)
 	for wi := range workspaces {
 		workspace := &workspaces[wi]
@@ -971,6 +983,11 @@ func (h *GPTClickUpEndpoint) findTaskSearchMatches(ctx context.Context, prompt s
 			space := &workspace.Spaces[si]
 
 			scanList := func(list model.ListClickUp, folderName *string) {
+				if _, seen := scannedLists[list.ID]; seen {
+					return
+				}
+				scannedLists[list.ID] = struct{}{}
+
 				listTasks, err := h.fetchListTasks(ctx, list.ID, forceSync)
 				if err != nil {
 					h.logger.WithError(err).WithFields(logrus.Fields{"operation": "load_tasks", "list_id": list.ID}).Warn("failed to load tasks for search")

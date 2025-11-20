@@ -171,6 +171,43 @@ func TestListWorkspaceTasksFiltersByListOrFolder(t *testing.T) {
 	}
 }
 
+func TestListWorkspaceTasksDedupesListsFromFolders(t *testing.T) {
+	repo := NewMemoryClickUpRepository()
+	repo.SaveWorkspaces([]model.WorkspaceClickUp{{ID: "ws-1", Name: "Workspace"}})
+
+	folderID := "folder-1"
+	workspaceTree := []model.WorkspaceClickUp{{
+		ID:   "ws-1",
+		Name: "Workspace",
+		Spaces: []model.SpaceClickUp{{
+			ID:          "sp-1",
+			Name:        "Space",
+			WorkspaceID: "ws-1",
+			Lists:       []model.ListClickUp{{ID: "list-1", Name: "Inbox", SpaceID: "sp-1"}},
+			Folders: []model.FolderClickUp{{
+				ID:      folderID,
+				Name:    "Projects",
+				SpaceID: "sp-1",
+				Lists:   []model.ListClickUp{{ID: "list-1", Name: "Inbox", SpaceID: "sp-1", FolderID: &folderID}},
+			}},
+		}},
+	}}
+
+	repo.SaveTasks([]model.TaskClickUp{{ID: "task-1", Name: "Update LinkedIn profile", ListID: "list-1", Status: "open"}})
+
+	logger := logrus.New().WithField("component", "test")
+	endpoint := NewGPTClickUpEndpoint(nil, &stubClickUpService{}, repo, logger)
+
+	tasks, err := endpoint.listWorkspaceTasks(context.Background(), &workspaceTree[0], nil, nil, nil, false, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(tasks) != 1 || tasks[0].FolderName != nil {
+		t.Fatalf("expected single task without folder context, got %#v", tasks)
+	}
+}
+
 func TestDetectTaskListingIntentMatchesListAndFolder(t *testing.T) {
 	workspaces := []model.WorkspaceClickUp{
 		{
@@ -215,10 +252,13 @@ func TestTryCompleteTaskMatchesByName(t *testing.T) {
 	repo.SaveTasks([]model.TaskClickUp{{ID: "task-1", Name: "Update LinkedIn profile", ListID: "list-1", Status: "to do"}})
 
 	updatedPayload := clickup.TaskRequest{}
-	service := &stubClickUpService{updateFunc: func(ctx context.Context, taskID string, payload clickup.TaskRequest) (*model.TaskClickUp, error) {
-		updatedPayload = payload
-		return &model.TaskClickUp{ID: taskID, Name: "Update LinkedIn profile", ListID: "list-1", Status: "closed"}, nil
-	}}
+	service := &stubClickUpService{
+		statuses: map[string][]clickup.Status{"list-1": {{Name: "done", Type: "closed"}}},
+		updateFunc: func(ctx context.Context, taskID string, payload clickup.TaskRequest) (*model.TaskClickUp, error) {
+			updatedPayload = payload
+			return &model.TaskClickUp{ID: taskID, Name: "Update LinkedIn profile", ListID: "list-1", Status: payload.Status}, nil
+		},
+	}
 
 	workspaceTree, _ := repo.GetWorkspaceTree()
 	logger := logrus.New().WithField("component", "test")
@@ -229,12 +269,12 @@ func TestTryCompleteTaskMatchesByName(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if updated == nil || updated.ID != "task-1" || updated.Status != "closed" {
+	if updated == nil || updated.ID != "task-1" || updated.Status != "done" {
 		t.Fatalf("expected task to be closed, got %#v", updated)
 	}
 
-	if updatedPayload.Status != "closed" {
-		t.Fatalf("expected status 'closed' to be sent to ClickUp, got %#v", updatedPayload)
+	if updatedPayload.Status != "done" {
+		t.Fatalf("expected status 'done' to be sent to ClickUp, got %#v", updatedPayload)
 	}
 }
 
@@ -264,9 +304,18 @@ func TestFindTaskSearchMatchesReturnsExactMatch(t *testing.T) {
 	repo.SaveLists([]model.ListClickUp{{ID: "list-1", Name: "Inbox", SpaceID: "sp-1"}})
 	repo.SaveTasks([]model.TaskClickUp{{ID: "task-1", Name: "Update LinkedIn profile", ListID: "list-1", Status: "open"}})
 
+	if tasks, _ := repo.GetTasks("list-1"); len(tasks) == 0 {
+		t.Fatalf("expected tasks to be stored in memory repository")
+	}
+
 	workspaceTree, _ := repo.GetWorkspaceTree()
 	logger := logrus.New().WithField("component", "test")
 	endpoint := NewGPTClickUpEndpoint(nil, &stubClickUpService{}, repo, logger)
+
+	tasks, err := endpoint.fetchListTasks(context.Background(), "list-1", false)
+	if err != nil || len(tasks) == 0 {
+		t.Fatalf("expected tasks to be retrievable, got len=%d err=%v", len(tasks), err)
+	}
 
 	matches := endpoint.findTaskSearchMatches(context.Background(), "busque a tarefa Update LinkedIn profile", workspaceTree, false)
 	if len(matches) != 1 {
@@ -274,6 +323,45 @@ func TestFindTaskSearchMatchesReturnsExactMatch(t *testing.T) {
 	}
 	if matches[0].ID != "task-1" || matches[0].ListName != "Inbox" || matches[0].WorkspaceName != "Workspace" {
 		t.Fatalf("unexpected match content: %#v", matches[0])
+	}
+}
+
+func TestFindTaskSearchMatchesDedupesLists(t *testing.T) {
+	repo := NewMemoryClickUpRepository()
+	folderID := "folder-1"
+	repo.SaveTasks([]model.TaskClickUp{{ID: "task-1", Name: "Update LinkedIn profile", ListID: "list-1", Status: "open"}})
+
+	if tasks, _ := repo.GetTasks("list-1"); len(tasks) == 0 {
+		t.Fatalf("expected tasks to be stored in memory repository")
+	}
+
+	workspaceTree := []model.WorkspaceClickUp{{
+		ID:   "ws-1",
+		Name: "Workspace",
+		Spaces: []model.SpaceClickUp{{
+			ID:          "sp-1",
+			Name:        "Personal",
+			WorkspaceID: "ws-1",
+			Lists:       []model.ListClickUp{{ID: "list-1", Name: "Inbox", SpaceID: "sp-1"}},
+			Folders: []model.FolderClickUp{{
+				ID:      folderID,
+				Name:    "Projects",
+				SpaceID: "sp-1",
+				Lists:   []model.ListClickUp{{ID: "list-1", Name: "Inbox", SpaceID: "sp-1", FolderID: &folderID}},
+			}},
+		}},
+	}}
+	logger := logrus.New().WithField("component", "test")
+	endpoint := NewGPTClickUpEndpoint(nil, &stubClickUpService{}, repo, logger)
+
+	tasks, err := endpoint.fetchListTasks(context.Background(), "list-1", false)
+	if err != nil || len(tasks) == 0 {
+		t.Fatalf("expected tasks to be retrievable, got len=%d err=%v", len(tasks), err)
+	}
+
+	matches := endpoint.findTaskSearchMatches(context.Background(), "busque a tarefa Update LinkedIn profile", workspaceTree, false)
+	if len(matches) != 1 {
+		t.Fatalf("expected a single deduped match, got %#v", matches)
 	}
 }
 
@@ -317,6 +405,7 @@ func TestWorkspaceTreeIncompleteIgnoresTasks(t *testing.T) {
 type stubClickUpService struct {
 	tasksByList map[string][]model.TaskClickUp
 	updateFunc  func(ctx context.Context, taskID string, payload clickup.TaskRequest) (*model.TaskClickUp, error)
+	statuses    map[string][]clickup.Status
 }
 
 func (s *stubClickUpService) GetCurrentUser(ctx context.Context) (*model.User, []model.WorkspaceClickUp, error) {
@@ -358,9 +447,10 @@ func (s *stubClickUpService) UpdateTask(ctx context.Context, taskID string, payl
 	}
 	return nil, nil
 }
-func (s *stubClickUpService) ListFolderLists(ctx context.Context, folderID string) ([]model.ListClickUp, error) {
-	return nil, nil
-}
+
 func (s *stubClickUpService) GetListStatuses(ctx context.Context, listID string) ([]clickup.Status, error) {
+	return s.statuses[listID], nil
+}
+func (s *stubClickUpService) ListFolderLists(ctx context.Context, folderID string) ([]model.ListClickUp, error) {
 	return nil, nil
 }

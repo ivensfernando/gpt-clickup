@@ -121,6 +121,15 @@ func (f *fakeService) UpdateTask(ctx context.Context, taskID string, payload cli
 }
 
 func (f *fakeService) ListFolderLists(ctx context.Context, folderID string) ([]model.ListClickUp, error) {
+	for _, folder := range f.folders[folderID] {
+		if folder.ID == folderID {
+			return folder.Lists, nil
+		}
+	}
+	return nil, nil
+}
+
+func (f *fakeService) GetListStatuses(ctx context.Context, listID string) ([]clickup.Status, error) {
 	return nil, nil
 }
 

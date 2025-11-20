@@ -26,6 +26,7 @@ func (r *GormClickUpRepository) GetWorkspaces() ([]model.WorkspaceClickUp, error
 func (r *GormClickUpRepository) GetWorkspaceTree() ([]model.WorkspaceClickUp, error) {
 	var workspaces []model.WorkspaceClickUp
 	err := r.db.
+		Preload("Spaces.Lists", "folder_id IS NULL").
 		Preload("Spaces.Lists.Tasks").
 		Preload("Spaces.Folders.Lists.Tasks").
 		Find(&workspaces).Error
