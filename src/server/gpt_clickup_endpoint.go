@@ -70,6 +70,7 @@ type taskWithContext struct {
 
 type taskListingIntent struct {
 	workspace *model.WorkspaceClickUp
+	space     *model.SpaceClickUp
 	openOnly  bool
 }
 
@@ -114,18 +115,24 @@ func (h *GPTClickUpEndpoint) Handle(c *gin.Context) {
 	}
 
 	if intent := detectTaskListingIntent(req.Prompt, workspaces); intent != nil {
-		tasks, err := h.listWorkspaceTasks(c.Request.Context(), intent.workspace, req.ForceSync, intent.openOnly)
+		tasks, err := h.listWorkspaceTasks(c.Request.Context(), intent.workspace, intent.space, req.ForceSync, intent.openOnly)
 		if err != nil {
 			h.logger.WithError(err).WithField("operation", "list_workspace_tasks").Error("failed to list workspace tasks")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list workspace tasks"})
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
+		response := gin.H{
 			"workspace": gin.H{"id": intent.workspace.ID, "name": intent.workspace.Name},
 			"tasks":     tasks,
 			"open_only": intent.openOnly,
-		})
+		}
+
+		if intent.space != nil {
+			response["space"] = gin.H{"id": intent.space.ID, "name": intent.space.Name}
+		}
+
+		c.JSON(http.StatusOK, response)
 		return
 	}
 
@@ -317,7 +324,7 @@ func (h *GPTClickUpEndpoint) buildPlannerMessages(prompt, listID string, workspa
 	}, nil
 }
 
-func (h *GPTClickUpEndpoint) listWorkspaceTasks(ctx context.Context, workspace *model.WorkspaceClickUp, forceSync, openOnly bool) ([]taskWithContext, error) {
+func (h *GPTClickUpEndpoint) listWorkspaceTasks(ctx context.Context, workspace *model.WorkspaceClickUp, space *model.SpaceClickUp, forceSync, openOnly bool) ([]taskWithContext, error) {
 	tasks := make([]taskWithContext, 0)
 
 	addTasks := func(list model.ListClickUp, space model.SpaceClickUp, folderName *string) error {
@@ -345,7 +352,12 @@ func (h *GPTClickUpEndpoint) listWorkspaceTasks(ctx context.Context, workspace *
 		return nil
 	}
 
-	for _, space := range workspace.Spaces {
+	spaces := workspace.Spaces
+	if space != nil {
+		spaces = []model.SpaceClickUp{*space}
+	}
+
+	for _, space := range spaces {
 		for _, list := range space.Lists {
 			if err := addTasks(list, space, nil); err != nil {
 				return nil, err
@@ -496,15 +508,33 @@ func detectTaskListingIntent(prompt string, workspaces []model.WorkspaceClickUp)
 	}
 
 	var chosen *model.WorkspaceClickUp
+	var chosenSpace *model.SpaceClickUp
 	for idx := range workspaces {
 		ws := &workspaces[idx]
 		name := strings.ToLower(ws.Name)
 		if name != "" && strings.Contains(normalized, name) {
 			chosen = ws
-			break
 		}
 		if strings.Contains(normalized, strings.ToLower(ws.ID)) {
 			chosen = ws
+		}
+
+		for si := range ws.Spaces {
+			sp := &ws.Spaces[si]
+			spaceName := strings.ToLower(sp.Name)
+			if spaceName != "" && strings.Contains(normalized, spaceName) {
+				chosen = ws
+				chosenSpace = sp
+				break
+			}
+			if strings.Contains(normalized, strings.ToLower(sp.ID)) {
+				chosen = ws
+				chosenSpace = sp
+				break
+			}
+		}
+
+		if chosenSpace != nil || chosen != nil {
 			break
 		}
 	}
@@ -517,7 +547,7 @@ func detectTaskListingIntent(prompt string, workspaces []model.WorkspaceClickUp)
 		return nil
 	}
 
-	return &taskListingIntent{workspace: chosen, openOnly: wantsOnlyOpenTasks(normalized)}
+	return &taskListingIntent{workspace: chosen, space: chosenSpace, openOnly: wantsOnlyOpenTasks(normalized)}
 }
 
 func wantsOnlyOpenTasks(prompt string) bool {
