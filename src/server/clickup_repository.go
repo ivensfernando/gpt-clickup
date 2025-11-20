@@ -26,8 +26,11 @@ func (r *GormClickUpRepository) GetWorkspaces() ([]model.WorkspaceClickUp, error
 func (r *GormClickUpRepository) GetWorkspaceTree() ([]model.WorkspaceClickUp, error) {
 	var workspaces []model.WorkspaceClickUp
 	err := r.db.
+		Preload("Spaces").
 		Preload("Spaces.Lists", "folder_id IS NULL").
 		Preload("Spaces.Lists.Tasks").
+		Preload("Spaces.Folders").
+		Preload("Spaces.Folders.Lists").
 		Preload("Spaces.Folders.Lists.Tasks").
 		Find(&workspaces).Error
 	return workspaces, err
@@ -78,7 +81,13 @@ func (r *GormClickUpRepository) SaveFolders(folders []model.FolderClickUp) error
 	}
 	lists := make([]model.ListClickUp, 0)
 	for _, folder := range folders {
+		folderID := folder.ID
+		spaceID := folder.SpaceID
 		if len(folder.Lists) > 0 {
+			for i := range folder.Lists {
+				folder.Lists[i].FolderID = &folderID
+				folder.Lists[i].SpaceID = spaceID
+			}
 			lists = append(lists, folder.Lists...)
 		}
 	}
