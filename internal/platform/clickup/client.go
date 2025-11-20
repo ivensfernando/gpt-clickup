@@ -22,6 +22,7 @@ type HTTPClient interface {
 
 // Service espone i metodi necessari per interagire con l'API del ClickUp.
 type Service interface {
+	GetCurrentUser(ctx context.Context) (*model.User, []model.WorkspaceClickUp, error)
 	ListWorkspaces(ctx context.Context) ([]model.WorkspaceClickUp, error)
 	ListSpaces(ctx context.Context, teamID string) ([]model.SpaceClickUp, error)
 	ListLists(ctx context.Context, spaceID string) ([]model.ListClickUp, error)
@@ -65,6 +66,51 @@ func NewClientWithHTTP(apiKey string, httpClient HTTPClient, logger *logrus.Entr
 		httpClient: httpClient,
 		logger:     logger,
 	}
+}
+
+// GetCurrentUser returns the user associated with the API key and their workspaces.
+func (c *Client) GetCurrentUser(ctx context.Context) (*model.User, []model.WorkspaceClickUp, error) {
+	var response struct {
+		User struct {
+			ID             any    `json:"id"`
+			Username       string `json:"username"`
+			Email          string `json:"email"`
+			Color          string `json:"color"`
+			ProfilePicture string `json:"profilePicture"`
+			FirstName      string `json:"first_name"`
+			LastName       string `json:"last_name"`
+		} `json:"user"`
+		Teams []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"teams"`
+	}
+
+	if err := c.get(ctx, "user", &response); err != nil {
+		return nil, nil, err
+	}
+
+	clickUpUserID := fmt.Sprint(response.User.ID)
+	username := response.User.Username
+	if username == "" {
+		username = response.User.Email
+	}
+
+	user := &model.User{
+		Username:      username,
+		Email:         response.User.Email,
+		FirstName:     response.User.FirstName,
+		LastName:      response.User.LastName,
+		AvatarURL:     response.User.ProfilePicture,
+		ClickUpUserID: clickUpUserID,
+	}
+
+	workspaces := make([]model.WorkspaceClickUp, 0, len(response.Teams))
+	for _, team := range response.Teams {
+		workspaces = append(workspaces, model.WorkspaceClickUp{ID: team.ID, Name: team.Name})
+	}
+
+	return user, workspaces, nil
 }
 
 // ListWorkspaces recupera tutti i workspace associati all'utente.
@@ -387,12 +433,14 @@ func (c *Client) do(ctx context.Context, method, endpoint string, body interface
 	}
 
 	var payload io.Reader
+	var payloadPreview interface{}
 	if body != nil {
 		data, err := json.Marshal(body)
 		if err != nil {
 			return fmt.Errorf("failed to marshal payload: %w", err)
 		}
 		payload = bytes.NewBuffer(data)
+		payloadPreview = string(data)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, u.String(), payload)
@@ -402,7 +450,11 @@ func (c *Client) do(ctx context.Context, method, endpoint string, body interface
 	req.Header.Set("Authorization", c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	c.logger.WithFields(logrus.Fields{"method": method, "endpoint": u.String()}).Info("Sending ClickUp request")
+	c.logger.WithFields(logrus.Fields{
+		"method":   method,
+		"endpoint": u.String(),
+		"payload":  payloadPreview,
+	}).Info("Sending ClickUp request")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -414,6 +466,13 @@ func (c *Client) do(ctx context.Context, method, endpoint string, body interface
 	if err != nil {
 		return fmt.Errorf("failed to read ClickUp response: %w", err)
 	}
+
+	c.logger.WithFields(logrus.Fields{
+		"method":      method,
+		"endpoint":    u.String(),
+		"status_code": resp.StatusCode,
+		"response":    string(data),
+	}).Debug("Received ClickUp response")
 
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("ClickUp API error (%d): %s", resp.StatusCode, string(data))

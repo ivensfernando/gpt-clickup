@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
@@ -36,6 +37,10 @@ func StartServer(port string, logger *logrus.Entry) {
 	gptClient := gpt.NewClient(openaiKey, logger)
 	clickupClient := clickup.NewClient(clickupKey, logger)
 	clickupRepo := DefaultRepository()
+
+	if err := ensurePrimaryUser(context.Background(), clickupClient, logger); err != nil {
+		logger.WithError(err).Fatal("failed to initialize primary user")
+	}
 	clickupHandler := NewClickUpHandler(clickupClient, clickupRepo, logger)
 
 	r := gin.Default()

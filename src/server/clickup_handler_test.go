@@ -35,6 +35,11 @@ func newFakeService() *fakeService {
 	}
 }
 
+func (f *fakeService) GetCurrentUser(ctx context.Context) (*model.User, []model.WorkspaceClickUp, error) {
+	user := &model.User{ID: 1, Username: "fake", Email: "fake@example.com", ClickUpUserID: "cu-1"}
+	return user, nil, nil
+}
+
 func (f *fakeService) ListWorkspaces(ctx context.Context) ([]model.WorkspaceClickUp, error) {
 	if f.forbidWorkspaceFetch {
 		return nil, fmt.Errorf("unexpected fetch")

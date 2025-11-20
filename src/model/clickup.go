@@ -5,7 +5,7 @@ import "time"
 type WorkspaceClickUp struct {
 	ID        string         `gorm:"primaryKey" json:"id"`
 	Name      string         `gorm:"size:255" json:"name"`
-	UserID    uint           `gorm:"index" json:"user_id"`
+	UserID    *uint          `gorm:"index" json:"user_id"`
 	User      *User          `gorm:"foreignKey:UserID" json:"-"`
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
