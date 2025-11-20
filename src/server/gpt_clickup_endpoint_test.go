@@ -257,6 +257,43 @@ func TestScoreTaskMatchRequiresReasonableScore(t *testing.T) {
 	}
 }
 
+func TestFindTaskSearchMatchesReturnsExactMatch(t *testing.T) {
+	repo := NewMemoryClickUpRepository()
+	repo.SaveWorkspaces([]model.WorkspaceClickUp{{ID: "ws-1", Name: "Workspace"}})
+	repo.SaveSpaces([]model.SpaceClickUp{{ID: "sp-1", Name: "Personal", WorkspaceID: "ws-1"}})
+	repo.SaveLists([]model.ListClickUp{{ID: "list-1", Name: "Inbox", SpaceID: "sp-1"}})
+	repo.SaveTasks([]model.TaskClickUp{{ID: "task-1", Name: "Update LinkedIn profile", ListID: "list-1", Status: "open"}})
+
+	workspaceTree, _ := repo.GetWorkspaceTree()
+	logger := logrus.New().WithField("component", "test")
+	endpoint := NewGPTClickUpEndpoint(nil, &stubClickUpService{}, repo, logger)
+
+	matches := endpoint.findTaskSearchMatches(context.Background(), "busque a tarefa Update LinkedIn profile", workspaceTree, false)
+	if len(matches) != 1 {
+		t.Fatalf("expected a single match, got %#v", matches)
+	}
+	if matches[0].ID != "task-1" || matches[0].ListName != "Inbox" || matches[0].WorkspaceName != "Workspace" {
+		t.Fatalf("unexpected match content: %#v", matches[0])
+	}
+}
+
+func TestFindTaskSearchMatchesIgnoresPromptsWithoutSearchIntent(t *testing.T) {
+	repo := NewMemoryClickUpRepository()
+	repo.SaveWorkspaces([]model.WorkspaceClickUp{{ID: "ws-1", Name: "Workspace"}})
+	repo.SaveSpaces([]model.SpaceClickUp{{ID: "sp-1", Name: "Personal", WorkspaceID: "ws-1"}})
+	repo.SaveLists([]model.ListClickUp{{ID: "list-1", Name: "Inbox", SpaceID: "sp-1"}})
+	repo.SaveTasks([]model.TaskClickUp{{ID: "task-1", Name: "Update LinkedIn profile", ListID: "list-1", Status: "open"}})
+
+	workspaceTree, _ := repo.GetWorkspaceTree()
+	logger := logrus.New().WithField("component", "test")
+	endpoint := NewGPTClickUpEndpoint(nil, &stubClickUpService{}, repo, logger)
+
+	matches := endpoint.findTaskSearchMatches(context.Background(), "listar tarefas", workspaceTree, false)
+	if matches != nil {
+		t.Fatalf("expected nil matches for listing intent, got %#v", matches)
+	}
+}
+
 func TestWorkspaceTreeIncompleteIgnoresTasks(t *testing.T) {
 	workspaces := []model.WorkspaceClickUp{
 		{
@@ -322,5 +359,8 @@ func (s *stubClickUpService) UpdateTask(ctx context.Context, taskID string, payl
 	return nil, nil
 }
 func (s *stubClickUpService) ListFolderLists(ctx context.Context, folderID string) ([]model.ListClickUp, error) {
+	return nil, nil
+}
+func (s *stubClickUpService) GetListStatuses(ctx context.Context, listID string) ([]clickup.Status, error) {
 	return nil, nil
 }

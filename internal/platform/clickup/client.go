@@ -36,6 +36,7 @@ type Service interface {
 	GetTask(ctx context.Context, taskID string) (*model.TaskClickUp, error)
 	UpdateTask(ctx context.Context, taskID string, payload TaskRequest) (*model.TaskClickUp, error)
 	ListFolderLists(ctx context.Context, folderID string) ([]model.ListClickUp, error)
+	GetListStatuses(ctx context.Context, listID string) ([]Status, error)
 }
 
 // Client gestisce le richieste verso l'API del ClickUp.
@@ -48,12 +49,18 @@ type Client struct {
 
 // TaskRequest rappresenta il payload per la creazione di un task o subtask.
 type TaskRequest struct {
-	Name         string  `json:"name"`
+	Name         string  `json:"name,omitempty"`
 	Description  string  `json:"description,omitempty"`
 	Status       string  `json:"status,omitempty"`
 	Priority     *int    `json:"priority,omitempty"`
 	TimeEstimate *int64  `json:"time_estimate,omitempty"`
 	Parent       *string `json:"parent,omitempty"`
+}
+
+// Status represents a status configured for a ClickUp list.
+type Status struct {
+	Name string
+	Type string
 }
 
 // NewClient crea un nuovo client ClickUp utilizzando l'http.DefaultClient.
@@ -401,6 +408,28 @@ func (c *Client) ListFolderLists(ctx context.Context, folderID string) ([]model.
 		})
 	}
 	return lists, nil
+}
+
+// GetListStatuses retrieves the available statuses for a given list.
+func (c *Client) GetListStatuses(ctx context.Context, listID string) ([]Status, error) {
+	var response struct {
+		Statuses []struct {
+			Status string `json:"status"`
+			Type   string `json:"type"`
+		} `json:"statuses"`
+	}
+
+	endpoint := fmt.Sprintf("list/%s", listID)
+	if err := c.get(ctx, endpoint, &response); err != nil {
+		return nil, err
+	}
+
+	statuses := make([]Status, 0, len(response.Statuses))
+	for _, status := range response.Statuses {
+		statuses = append(statuses, Status{Name: status.Status, Type: status.Type})
+	}
+
+	return statuses, nil
 }
 
 func decodePriority(priorityWrapper *struct {

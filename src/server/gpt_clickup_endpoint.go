@@ -127,6 +127,11 @@ func (h *GPTClickUpEndpoint) Handle(c *gin.Context) {
 		return
 	}
 
+	if matches := h.findTaskSearchMatches(c.Request.Context(), req.Prompt, workspaces, req.ForceSync); len(matches) > 0 {
+		c.JSON(http.StatusOK, gin.H{"matched_tasks": matches, "workspace_map": workspaces})
+		return
+	}
+
 	if intent := detectTaskListingIntent(req.Prompt, workspaces); intent != nil {
 		tasks, err := h.listWorkspaceTasks(c.Request.Context(), intent.workspace, intent.space, intent.folder, intent.list, req.ForceSync, intent.openOnly)
 		if err != nil {
@@ -154,6 +159,31 @@ func (h *GPTClickUpEndpoint) Handle(c *gin.Context) {
 		}
 
 		c.JSON(http.StatusOK, response)
+		return
+	}
+
+	if task := h.findTaskCompletionTarget(c.Request.Context(), req.Prompt, workspaces, req.ForceSync); task != nil {
+		status, err := h.resolveClosedStatus(c.Request.Context(), task.ListID)
+		if err != nil {
+			h.logger.WithError(err).WithField("operation", "resolve_closed_status").Error("failed to determine closed status")
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to determine closed status", "details": err.Error()})
+			return
+		}
+
+		updatePayload := clickup.TaskRequest{Status: status}
+		updated, err := h.service.UpdateTask(c.Request.Context(), task.ID, updatePayload)
+		if err != nil {
+			h.logger.WithError(err).WithFields(logrus.Fields{"operation": "complete_task", "task_id": task.ID}).Error("failed to complete task")
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to complete task", "details": err.Error()})
+			return
+		}
+
+		if err := h.repo.SaveTasks([]model.TaskClickUp{*updated}); err != nil {
+			h.logger.WithError(err).WithFields(logrus.Fields{"operation": "persist_task", "task_id": updated.ID}).Warn("failed to persist updated task")
+		}
+
+		task.Status = status
+		c.JSON(http.StatusOK, gin.H{"completed_task": task, "applied_status": status, "workspace_map": workspaces})
 		return
 	}
 
@@ -840,4 +870,167 @@ func truncateString(value string, limit int) string {
 		return value[:limit]
 	}
 	return value[:limit-3] + "..."
+}
+
+func (h *GPTClickUpEndpoint) findTaskCompletionTarget(ctx context.Context, prompt string, workspaces []model.WorkspaceClickUp, forceSync bool) *taskWithContext {
+	normalized := strings.ToLower(prompt)
+	if normalized == "" {
+		return nil
+	}
+
+	keywords := []string{"fechar", "feche", "close", "encerrar", "concluir", "finalizar"}
+	matchesIntent := false
+	for _, kw := range keywords {
+		if strings.Contains(normalized, kw) {
+			matchesIntent = true
+			break
+		}
+	}
+	if !matchesIntent {
+		return nil
+	}
+
+	var best *taskWithContext
+
+	for wi := range workspaces {
+		workspace := &workspaces[wi]
+		for si := range workspace.Spaces {
+			space := &workspace.Spaces[si]
+
+			scanList := func(list model.ListClickUp, folderName *string) bool {
+				listTasks, err := h.fetchListTasks(ctx, list.ID, forceSync)
+				if err != nil {
+					h.logger.WithError(err).WithFields(logrus.Fields{"operation": "load_tasks", "list_id": list.ID}).Warn("failed to load tasks for completion")
+					return false
+				}
+
+				for _, task := range listTasks {
+					name := strings.ToLower(strings.TrimSpace(task.Name))
+					if name == "" || !strings.Contains(normalized, name) {
+						continue
+					}
+
+					candidate := taskWithContext{
+						ID:            task.ID,
+						Name:          task.Name,
+						Status:        task.Status,
+						Priority:      task.Priority,
+						ListID:        list.ID,
+						ListName:      list.Name,
+						SpaceName:     space.Name,
+						WorkspaceName: workspace.Name,
+						FolderName:    folderName,
+					}
+
+					if best == nil || len(candidate.Name) > len(best.Name) {
+						copy := candidate
+						best = &copy
+					}
+				}
+
+				return false
+			}
+
+			for _, list := range space.Lists {
+				scanList(list, nil)
+			}
+			for _, folder := range space.Folders {
+				folderName := folder.Name
+				for _, list := range folder.Lists {
+					scanList(list, &folderName)
+				}
+			}
+		}
+	}
+
+	return best
+}
+
+func (h *GPTClickUpEndpoint) findTaskSearchMatches(ctx context.Context, prompt string, workspaces []model.WorkspaceClickUp, forceSync bool) []taskWithContext {
+	normalized := strings.ToLower(strings.TrimSpace(prompt))
+	if normalized == "" {
+		return nil
+	}
+
+	keywords := []string{"busc", "procur", "encontr", "ach", "localiz", "verifique"}
+	matchesIntent := false
+	for _, kw := range keywords {
+		if strings.Contains(normalized, kw) {
+			matchesIntent = true
+			break
+		}
+	}
+	if !matchesIntent {
+		return nil
+	}
+
+	results := make([]taskWithContext, 0)
+	for wi := range workspaces {
+		workspace := &workspaces[wi]
+		for si := range workspace.Spaces {
+			space := &workspace.Spaces[si]
+
+			scanList := func(list model.ListClickUp, folderName *string) {
+				listTasks, err := h.fetchListTasks(ctx, list.ID, forceSync)
+				if err != nil {
+					h.logger.WithError(err).WithFields(logrus.Fields{"operation": "load_tasks", "list_id": list.ID}).Warn("failed to load tasks for search")
+					return
+				}
+
+				for _, task := range listTasks {
+					name := strings.ToLower(strings.TrimSpace(task.Name))
+					if name == "" || !strings.Contains(normalized, name) {
+						continue
+					}
+
+					results = append(results, taskWithContext{
+						ID:            task.ID,
+						Name:          task.Name,
+						Status:        task.Status,
+						Priority:      task.Priority,
+						ListID:        list.ID,
+						ListName:      list.Name,
+						SpaceName:     space.Name,
+						WorkspaceName: workspace.Name,
+						FolderName:    folderName,
+					})
+				}
+			}
+
+			for _, list := range space.Lists {
+				scanList(list, nil)
+			}
+			for _, folder := range space.Folders {
+				folderName := folder.Name
+				for _, list := range folder.Lists {
+					scanList(list, &folderName)
+				}
+			}
+		}
+	}
+
+	if len(results) == 0 {
+		return nil
+	}
+
+	return results
+}
+
+func (h *GPTClickUpEndpoint) resolveClosedStatus(ctx context.Context, listID string) (string, error) {
+	statuses, err := h.service.GetListStatuses(ctx, listID)
+	if err != nil {
+		return "", err
+	}
+
+	for _, status := range statuses {
+		if status.Type == "closed" || isClosedStatus(status.Name) {
+			return status.Name, nil
+		}
+	}
+
+	if len(statuses) > 0 {
+		return statuses[len(statuses)-1].Name, nil
+	}
+
+	return "closed", nil
 }
