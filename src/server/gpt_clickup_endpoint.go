@@ -91,6 +91,11 @@ func (h *GPTClickUpEndpoint) Handle(c *gin.Context) {
 		return
 	}
 
+	if isWorkspaceListingPrompt(req.Prompt) {
+		c.JSON(http.StatusOK, gin.H{"workspace_map": workspaces})
+		return
+	}
+
 	listID, list := h.resolveList(workspaces, req)
 	if listID == "" {
 		h.logger.WithFields(logrus.Fields{
@@ -216,15 +221,6 @@ func (h *GPTClickUpEndpoint) syncSpaceChildren(ctx context.Context, spaceID stri
 	if err := h.repo.SaveLists(lists); err != nil {
 		return err
 	}
-	for _, list := range lists {
-		tasks, err := h.service.ListTasks(ctx, list.ID)
-		if err != nil {
-			return err
-		}
-		if err := h.repo.SaveTasks(tasks); err != nil {
-			return err
-		}
-	}
 
 	folders, err := h.service.ListFolders(ctx, spaceID)
 	if err != nil {
@@ -232,17 +228,6 @@ func (h *GPTClickUpEndpoint) syncSpaceChildren(ctx context.Context, spaceID stri
 	}
 	if err := h.repo.SaveFolders(folders); err != nil {
 		return err
-	}
-	for _, folder := range folders {
-		for _, list := range folder.Lists {
-			tasks, err := h.service.ListTasks(ctx, list.ID)
-			if err != nil {
-				return err
-			}
-			if err := h.repo.SaveTasks(tasks); err != nil {
-				return err
-			}
-		}
 	}
 	return nil
 }
@@ -271,6 +256,9 @@ func (h *GPTClickUpEndpoint) resolveList(workspaces []model.WorkspaceClickUp, re
 	}
 
 	list := findListByPath(workspaces, req.ListPath)
+	if list == nil {
+		list = findListAnywhere(workspaces, req.ListPath)
+	}
 	if list == nil {
 		return "", nil
 	}
@@ -359,24 +347,47 @@ func workspaceTreeIncomplete(workspaces []model.WorkspaceClickUp) bool {
 			if len(space.Lists) == 0 && len(space.Folders) == 0 {
 				return true
 			}
-			for _, list := range space.Lists {
-				if list.Tasks == nil {
-					return true
-				}
-			}
 			for _, folder := range space.Folders {
 				if folder.Lists == nil {
 					return true
-				}
-				for _, list := range folder.Lists {
-					if list.Tasks == nil {
-						return true
-					}
 				}
 			}
 		}
 	}
 	return false
+}
+
+func findListAnywhere(workspaces []model.WorkspaceClickUp, path []string) *model.ListClickUp {
+	if len(path) == 0 {
+		return nil
+	}
+
+	for wi := range workspaces {
+		ws := &workspaces[wi]
+		for si := range ws.Spaces {
+			space := &ws.Spaces[si]
+			for li := range space.Lists {
+				if matchesToken(space.Lists[li].Name, space.Lists[li].ID, path[0]) {
+					return &space.Lists[li]
+				}
+			}
+			for fi := range space.Folders {
+				folder := &space.Folders[fi]
+				for li := range folder.Lists {
+					if matchesToken(folder.Lists[li].Name, folder.Lists[li].ID, path[0]) {
+						return &folder.Lists[li]
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func isWorkspaceListingPrompt(prompt string) bool {
+	value := strings.ToLower(strings.TrimSpace(prompt))
+	return strings.Contains(value, "listar workspaces") || strings.Contains(value, "list workspaces") || strings.Contains(value, "listar workspace")
 }
 
 func parsePlannerResponse(raw string) (gptPlannerResponse, error) {
