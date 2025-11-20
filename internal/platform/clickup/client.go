@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -216,7 +217,7 @@ func (c *Client) ListTasks(ctx context.Context, listID string) ([]model.TaskClic
 				Status string `json:"status"`
 			} `json:"status"`
 			Priority *struct {
-				Priority int `json:"priority"`
+				Priority json.RawMessage `json:"priority"`
 			} `json:"priority"`
 			Parent string `json:"parent"`
 		} `json:"tasks"`
@@ -229,10 +230,7 @@ func (c *Client) ListTasks(ctx context.Context, listID string) ([]model.TaskClic
 
 	tasks := make([]model.TaskClickUp, 0, len(response.Tasks))
 	for _, task := range response.Tasks {
-		var priority int
-		if task.Priority != nil {
-			priority = task.Priority.Priority
-		}
+		priority := decodePriority(task.Priority)
 		var parent *string
 		if task.Parent != "" {
 			parentID := task.Parent
@@ -312,7 +310,7 @@ func (c *Client) GetTask(ctx context.Context, taskID string) (*model.TaskClickUp
 			Status string `json:"status"`
 		} `json:"status"`
 		Priority *struct {
-			Priority int `json:"priority"`
+			Priority json.RawMessage `json:"priority"`
 		} `json:"priority"`
 		Parent string `json:"parent"`
 		List   struct {
@@ -325,10 +323,7 @@ func (c *Client) GetTask(ctx context.Context, taskID string) (*model.TaskClickUp
 		return nil, err
 	}
 
-	var priority int
-	if response.Priority != nil {
-		priority = response.Priority.Priority
-	}
+	priority := decodePriority(response.Priority)
 
 	var parent *string
 	if response.Parent != "" {
@@ -403,6 +398,39 @@ func (c *Client) ListFolderLists(ctx context.Context, folderID string) ([]model.
 		})
 	}
 	return lists, nil
+}
+
+func decodePriority(priorityWrapper *struct {
+	Priority json.RawMessage `json:"priority"`
+}) int {
+	if priorityWrapper == nil || priorityWrapper.Priority == nil {
+		return 0
+	}
+
+	var priorityInt int
+	if err := json.Unmarshal(priorityWrapper.Priority, &priorityInt); err == nil {
+		return priorityInt
+	}
+
+	var priorityStr string
+	if err := json.Unmarshal(priorityWrapper.Priority, &priorityStr); err == nil {
+		if parsedInt, err := strconv.Atoi(priorityStr); err == nil {
+			return parsedInt
+		}
+
+		switch strings.ToLower(priorityStr) {
+		case "urgent":
+			return 1
+		case "high":
+			return 2
+		case "normal":
+			return 3
+		case "low":
+			return 4
+		}
+	}
+
+	return 0
 }
 
 func (c *Client) get(ctx context.Context, endpoint string, out interface{}) error {
