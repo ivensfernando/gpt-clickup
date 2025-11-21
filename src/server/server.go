@@ -20,18 +20,18 @@ func StartServer(port string, logger *logrus.Entry) {
 
 	openaiKey := os.Getenv("OPENAI_API_KEY")
 	clickupKey := os.Getenv("CLICKUP_API_KEY")
-	//defaultListID := os.Getenv("CLICKUP_LIST_ID")
+	// defaultListID := os.Getenv("CLICKUP_LIST_ID") // ID della lista predefinita
 
 	missingEnv := gin.H{}
 	if openaiKey == "" {
-		missingEnv["OPENAI_API_KEY"] = "variável de ambiente obrigatória ausente"
+		missingEnv["OPENAI_API_KEY"] = "required environment variable missing"
 	}
 	if clickupKey == "" {
-		missingEnv["CLICKUP_API_KEY"] = "variável de ambiente obrigatória ausente"
+		missingEnv["CLICKUP_API_KEY"] = "required environment variable missing"
 	}
 
 	if len(missingEnv) > 0 {
-		logger.WithFields(logrus.Fields(missingEnv)).Fatal("variáveis de ambiente obrigatórias não configuradas")
+		logger.WithFields(logrus.Fields(missingEnv)).Fatal("required environment variables not configured")
 	}
 
 	gptClient := gpt.NewClient(openaiKey, logger)
@@ -45,7 +45,7 @@ func StartServer(port string, logger *logrus.Entry) {
 
 	r := gin.Default()
 
-	// endpoint de health check
+	// endpoint di health check
 	r.GET("/health", func(c *gin.Context) {
 		c.String(http.StatusOK, "OK")
 	})

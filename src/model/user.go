@@ -2,7 +2,7 @@ package model
 
 import "time"
 
-// User represents the owner of the ClickUp credentials used by the system.
+// User rappresenta il proprietario delle credenziali ClickUp utilizzate dal sistema.
 type User struct {
 	ID            uint               `gorm:"primaryKey" json:"id"`
 	Username      string             `gorm:"uniqueIndex;not null" json:"username"`

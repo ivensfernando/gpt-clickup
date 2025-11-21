@@ -24,13 +24,13 @@ func InitDB(logger *logrus.Entry) {
 	)
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		PrepareStmt: true, // Optional: enables prepared statement caching
+		PrepareStmt: true, // Opzionale: abilita la cache delle prepared statement
 	})
 	if err != nil {
 		logger.WithError(err).Fatal("Failed to connect to database")
 	}
 
-	// Connection pool tuning
+	// Ottimizzazione del pool di connessioni
 	sqlDB, err := db.DB()
 	if err != nil {
 		logger.WithError(err).Fatal("Failed to get DB from GORM")

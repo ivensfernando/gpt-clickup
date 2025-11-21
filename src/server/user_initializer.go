@@ -11,7 +11,7 @@ import (
 	"gpt-clickup/src/model"
 )
 
-// ensurePrimaryUser makes sure there is at least one user in the database, creating it from ClickUp if necessary.
+// ensurePrimaryUser garantisce che nel database esista almeno un utente, creandolo da ClickUp se necessario.
 func ensurePrimaryUser(ctx context.Context, service clickup.Service, logger *logrus.Entry) error {
 	var count int64
 	if err := db.DB.Model(&model.User{}).Count(&count).Error; err != nil {

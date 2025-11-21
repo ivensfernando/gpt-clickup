@@ -46,7 +46,7 @@ func (h *ClickUpHandler) RegisterRoutes(r *gin.Engine) {
 	group.GET("/lists/:id/tasks", h.getTasks)
 	group.POST("/spaces/:id/folders", h.createFolder)
 	group.POST("/lists/:id/tasks", h.createTask)
-	// Add these two new routes:
+	// Aggiungi queste due nuove rotte:
 	group.DELETE("/folders/:id", h.deleteFolder)
 	group.DELETE("/tasks/:id", h.deleteTask)
 }
@@ -258,7 +258,7 @@ func (h *ClickUpHandler) createTask(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"task": task})
 }
 
-// Add these two new handler methods:
+// Aggiungi questi due nuovi handler:
 func (h *ClickUpHandler) deleteFolder(c *gin.Context) {
 	folderID := c.Param("id")
 

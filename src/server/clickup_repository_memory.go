@@ -42,7 +42,7 @@ func (m *MemoryClickUpRepository) GetWorkspaceTree() ([]model.WorkspaceClickUp, 
 		wsCopy.Spaces = make([]model.SpaceClickUp, len(spaces))
 		for j, space := range spaces {
 			spaceCopy := space
-			// attach top-level lists
+			// collega le liste di primo livello
 			lists := m.lists[space.ID]
 			topLevel := make([]model.ListClickUp, 0)
 			folderBuckets := make(map[string][]model.ListClickUp)

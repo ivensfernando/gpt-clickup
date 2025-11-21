@@ -16,7 +16,7 @@ var (
 )
 
 func initLog() {
-	// Only log the warning severity or above.
+	// Registra solo i log di livello warning o superiore.
 	logrus.SetLevel(logrus.DebugLevel)
 
 	log = logrus.WithFields(logrus.Fields{
@@ -35,7 +35,7 @@ func init() {
 func main() {
 
 	initLog()
-	db.InitDB(log) // ✅ MUST be here before any DB access
+	db.InitDB(log) // ✅ DEVE essere qui prima di qualsiasi accesso al DB
 	defer handlePanic()
 
 	server.StartServer(PORT, log)

@@ -18,19 +18,19 @@ import (
 )
 
 const (
-	plannerSystemManual = `Você é um planejador especializado em ClickUp.\n` +
-		`Sua função é receber o pedido do usuário, analisar o mapa atual de workspaces/spaces/listas ` +
-		`e devolver UM JSON com a task principal que deve ser criada.\n` +
-		`Sempre responda no seguinte formato:\n` +
+	plannerSystemManual = `You are a planner specialized in ClickUp.\n` +
+		`Your role is to receive the user's request, analyze the current map of workspaces/spaces/lists ` +
+		`and return ONE JSON with the main task that must be created.\n` +
+		`Always respond in the following format:\n` +
 		`{"task":{"name":"...","description":"...","status":"backlog","priority":1},"explanation":"..."}` +
-		`\n- "name" deve ser curto (até 80 caracteres).\n` +
-		`- "description" pode conter detalhes adicionais.\n` +
-		`- "status" precisa ser um dos status que já existem na lista alvo (se não souber use "backlog").\n` +
-		`- "priority" é um inteiro de 1 (alta) a 4 (baixa).\n` +
-		`Se não houver informações suficientes para atender ao pedido explique o motivo em "explanation".`
+		`\n- "name" must be short (up to 80 characters).\n` +
+		`- "description" can contain additional details.\n` +
+		`- "status" must be one of the statuses that already exist in the target list (if unsure use "backlog").\n` +
+		`- "priority" is an integer from 1 (high) to 4 (low).\n` +
+		`If there is not enough information to satisfy the request, explain the reason in "explanation".`
 )
 
-// GPTClickUpEndpoint encapsula o endpoint /gpt-clickup.
+// GPTClickUpEndpoint incapsula l'endpoint /gpt-clickup.
 type GPTClickUpEndpoint struct {
 	gpt     *gpt.Client
 	service clickup.Service
@@ -38,7 +38,7 @@ type GPTClickUpEndpoint struct {
 	logger  *logrus.Entry
 }
 
-// GPTClickUpRequest representa o payload aceito pelo endpoint.
+// GPTClickUpRequest rappresenta il payload accettato dall'endpoint.
 type GPTClickUpRequest struct {
 	Prompt    string   `json:"prompt" binding:"required"`
 	ListID    string   `json:"list_id"`
@@ -78,7 +78,7 @@ type taskListingIntent struct {
 	openOnly  bool
 }
 
-// NewGPTClickUpEndpoint cria um novo handler especializado para o endpoint inteligente.
+// NewGPTClickUpEndpoint crea un nuovo handler specializzato per l'endpoint intelligente.
 func NewGPTClickUpEndpoint(gptClient *gpt.Client, service clickup.Service, repo ClickUpRepository, logger *logrus.Entry) *GPTClickUpEndpoint {
 	return &GPTClickUpEndpoint{
 		gpt:     gptClient,
@@ -88,7 +88,7 @@ func NewGPTClickUpEndpoint(gptClient *gpt.Client, service clickup.Service, repo 
 	}
 }
 
-// Handle executa o fluxo planner -> execução -> resposta.
+// Handle esegue il flusso planner -> esecuzione -> risposta.
 func (h *GPTClickUpEndpoint) Handle(c *gin.Context) {
 	h.logger.WithFields(logrus.Fields{
 		"operation": "handle_request",
@@ -368,7 +368,7 @@ func (h *GPTClickUpEndpoint) buildPlannerMessages(prompt, listID string, workspa
 		return nil, err
 	}
 
-	userPrompt := fmt.Sprintf("Pergunta original: %s\nContexto conhecido (JSON): %s", prompt, string(ctxBytes))
+	userPrompt := fmt.Sprintf("Original question: %s\nKnown context (JSON): %s", prompt, string(ctxBytes))
 	return []gpt.Message{
 		gpt.SystemMessage(plannerSystemManual),
 		gpt.UserMessage(userPrompt),
